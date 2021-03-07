@@ -21,20 +21,45 @@ languageMoves =
 languageStartState      =  1
 languageAcceptingStates = [5]
 
+data RecognitionError = BadChar Int | NotEnded
+
+showRecognitionError :: String -> RecognitionError -> String
+showRecognitionError input (BadChar i) = "bad char at position " ++ show i ++ ": \""
+        ++ take i input ++ '>':head (drop i input):'<':drop (i + 1) input ++ "\""
+
+showRecognitionError input NotEnded    = "too short input"
+
+enumerate :: [a] -> [(Int, a)]
+enumerate xs = zip [0..length xs] xs
+
 chain :: Monad m => [a -> m a] -> a -> m a
 chain = foldl' (>=>) return
 
-recognizeLanguage :: String -> Bool
-recognizeLanguage input = (isAccepting <$> finalState) == Just True where
+leftToMaybe :: Either a b -> Maybe a
+leftToMaybe (Right a) = Nothing
+leftToMaybe (Left  a) = Just a
+
+recognizeLanguage :: String -> Maybe RecognitionError
+recognizeLanguage input = leftToMaybe $ finalState >>= isAccepting where
 
     move :: Char -> Int -> Maybe Int
     move c s = lookup s languageMoves >>= lookup c
 
-    finalState :: Maybe Int
-    finalState = flip chain languageStartState $ map move input
+    finalState :: Either RecognitionError Int
+    finalState = flip chain languageStartState $ map mapMove $ enumerate input where
 
-    isAccepting :: Int -> Bool
-    isAccepting = flip elem languageAcceptingStates
+        mapMove :: (Int, Char) -> Int -> Either RecognitionError Int
+        mapMove (i, c) = mapMove' . move c where
+
+            mapMove' :: Maybe Int -> Either RecognitionError Int
+            mapMove'  Nothing = Left $ BadChar i
+            mapMove' (Just s) = Right s
+
+    isAccepting :: Int -> Either RecognitionError ()
+    isAccepting s = if isAccepting' s then Right () else Left NotEnded where
+
+        isAccepting' :: Int -> Bool
+        isAccepting' = flip elem languageAcceptingStates
 
 main :: IO ()
 main = do
@@ -54,6 +79,7 @@ main = do
         interactByLine' f = f <$> getLine >>= putStrLn >> interactByLine f
 
     recognizeLanguage' :: String -> String
-    recognizeLanguage' = showResult . recognizeLanguage where
-        showResult True  = "[GOOD] Input is sentence of this language!"
-        showResult False = "[BAD]  Input is not sentence of this language."
+    recognizeLanguage' input = showResult $ recognizeLanguage input where
+        showResult Nothing  = "[GOOD] Input is sentence of this language!"
+        showResult (Just e) = "[BAD]  Input is not sentence of this language: "
+                ++ showRecognitionError input e ++ "."
